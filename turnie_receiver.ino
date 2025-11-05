@@ -4,12 +4,13 @@
 #include <BLEServer.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
-#include "Display_image.h"
-#include "Display_Text.h"
+// #include "Display_image.h"
+// #include "Display_Text.h"
+#include "Display_Manager.h"
 
 // グローバル変数
 String displayFlag = "text";    // 現在の表示タイプ
-String displayText = "this is a test text";        // 表示するテキスト
+String displayText = "";        // 表示するテキスト
 std::vector<uint8_t> rgbData;   // 表示するRGB配列
 
 // BLE設定 ----------------------------
@@ -41,7 +42,7 @@ void loadDisplayDataFromJson() {
 
   JsonObject obj;
 
-  // ① トップが配列かオブジェクトかを判定
+  // トップが配列かオブジェクトかを判定
   if (doc.is<JsonArray>()) {
     JsonArray arr = doc.as<JsonArray>();
     obj = arr[0];  // 最初の要素を使用
@@ -52,7 +53,7 @@ void loadDisplayDataFromJson() {
     return;
   }
 
-  // ② flag の取得
+  // flag の取得
   if (!obj.containsKey("flag")) {
     Serial.println("No 'flag' key in JSON");
     return;
@@ -62,7 +63,7 @@ void loadDisplayDataFromJson() {
   Serial.print("Display flag: ");
   Serial.println(displayFlag);
 
-  // ③ テキスト表示
+  // テキスト表示
   if (displayFlag == "text") {
     if (obj.containsKey("text")) {
       displayText = obj["text"].as<String>();
@@ -72,7 +73,7 @@ void loadDisplayDataFromJson() {
     }
   }
 
-  // ④ 画像表示
+  // 画像表示
   else if (displayFlag == "image" || displayFlag == "photo") {
     JsonArray arr = obj["rgb"].as<JsonArray>();
     rgbData.clear();
@@ -123,31 +124,39 @@ class ServerCallbacks : public BLEServerCallbacks {
   }
 };
 
+String incomingBuffer = "";
 class WriteCallback : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *pCharacteristic) override {
-    String value = pCharacteristic->getValue();
-    if (value.length() == 0) return;
+    String rxValue = pCharacteristic->getValue();
+    if (rxValue.isEmpty()) return;
 
-    Serial.print("Received: ");
-    Serial.println(value);
+    // 🔹 分割されたデータを結合
+    incomingBuffer += String(rxValue.c_str());
 
-    if (value == "GET_DATA") {
-      sendDataJson();
-      return;
-    }
+    // 🔹 JSONが最後まで届いたと判断（"}"で終了している）
+    if (incomingBuffer.endsWith("}")) {
+      Serial.println("✅ Received full JSON:");
+      Serial.println(incomingBuffer);
 
-    // JSONとして解析
-    StaticJsonDocument<2048> doc;
-    DeserializationError error = deserializeJson(doc, value);
+      StaticJsonDocument<4096> doc;
+      DeserializationError error = deserializeJson(doc, incomingBuffer);
 
-    if (!error) {
-      File file = LittleFS.open("/data.json", "w");
-      if (file) {
-        serializeJson(doc, file);
-        file.close();
-        Serial.println("Saved new JSON to /data.json");
-        loadDisplayDataFromJson();  // ← 更新後に読み直す
+      if (!error) {
+        File file = LittleFS.open("/data.json", "w");
+        if (file) {
+          serializeJson(doc, file);
+          file.close();
+          Serial.println("💾 Saved new JSON to /data.json");
+
+          // JSONに応じて表示を更新
+          loadDisplayDataFromJson();
+        }
+      } else {
+        Serial.print("⚠️ JSON parse error: ");
+        Serial.println(error.f_str());
       }
+
+      incomingBuffer = ""; // バッファクリア
     }
   }
 };
@@ -161,12 +170,10 @@ String getUniqueName() {
 }
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   Serial.println("Starting ESP32 BLE JSON Receiver...");
 
-  Display_Init(64);
-  Matrix_SetTextBrightness(64);
-  Matrix_Init();
+  Display_Init(20);
 
   if (!LittleFS.begin(true)) {
     Serial.println("Failed to mount LittleFS");
@@ -210,10 +217,10 @@ void setup() {
 }
 
 void loop() {
-  // if (displayFlag == "text") {
-    Text_Flow((char*)displayText.c_str());
-  // }else if (displayFlag == "image" && rgbData.size() > 0) {
-  //   Display_ShowRGBRotCCW(rgbData.data(), rgbData.size(), 2000);
-  // }
+  if (displayFlag == "text") {
+    Display_FlowText((char*)displayText.c_str());
+  }else if (displayFlag == "image" && rgbData.size() > 0) {
+    Display_ShowRGBRotCCW(rgbData.data(), rgbData.size(), 2000);
+  }
   delay(100);
 }

@@ -114,8 +114,12 @@ static void drawRGBArrayRotCCW(const uint8_t* rgb, size_t n) {
       // int dy = DISP_W - 1 - sx;
 
       // 🔸 180度回転（上下左右を反転）
-      int dx = DISP_W - 1 - sx;
-      int dy = DISP_H - 1 - sy;
+      // int dx = DISP_W - 1 - sx;
+      // int dy = DISP_H - 1 - sy;
+
+      // 純向き
+      int dx = sx;
+      int dy = sy;
 
       matrix.drawPixel(dx, dy, matrix.Color(rgb[i + 1], rgb[i], rgb[i + 2]));
     }
